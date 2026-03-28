@@ -1324,6 +1324,16 @@ function getResumeConfigConflicts(session, opts = {}) {
     });
   }
 
+  const requestedFrom = opts.fromDockerfile ? path.resolve(opts.fromDockerfile) : null;
+  const recordedFrom = session?.metadata?.fromDockerfile ? path.resolve(session.metadata.fromDockerfile) : null;
+  if (requestedFrom && recordedFrom && requestedFrom !== recordedFrom) {
+    conflicts.push({
+      field: "fromDockerfile",
+      requested: requestedFrom,
+      recorded: recordedFrom,
+    });
+  }
+
   return conflicts;
 }
 
@@ -1729,7 +1739,7 @@ async function promptValidatedSandboxName() {
 }
 
 // eslint-disable-next-line complexity
-async function createSandbox(gpu, model, provider, preferredInferenceApi = null, sandboxNameOverride = null) {
+async function createSandbox(gpu, model, provider, preferredInferenceApi = null, sandboxNameOverride = null, fromDockerfile = null) {
   step(5, 7, "Creating sandbox");
 
   const sandboxName = sandboxNameOverride || (await promptValidatedSandboxName());
@@ -1763,10 +1773,27 @@ async function createSandbox(gpu, model, provider, preferredInferenceApi = null,
   // Stage build context
   const buildCtx = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-build-"));
   const stagedDockerfile = path.join(buildCtx, "Dockerfile");
-  fs.copyFileSync(path.join(ROOT, "Dockerfile"), stagedDockerfile);
-  copyBuildContextDir(path.join(ROOT, "nemoclaw"), path.join(buildCtx, "nemoclaw"));
-  copyBuildContextDir(path.join(ROOT, "nemoclaw-blueprint"), path.join(buildCtx, "nemoclaw-blueprint"));
-  copyBuildContextDir(path.join(ROOT, "scripts"), path.join(buildCtx, "scripts"));
+  if (fromDockerfile) {
+    const fromResolved = path.resolve(fromDockerfile);
+    if (!fs.existsSync(fromResolved)) {
+      console.error(`  Custom Dockerfile not found: ${fromResolved}`);
+      process.exit(1);
+    }
+    // Copy the entire parent directory as build context. copyBuildContextDir
+    // already filters out node_modules, .git, .venv, __pycache__, etc.
+    copyBuildContextDir(path.dirname(fromResolved), buildCtx);
+    // If the caller pointed at a file not named "Dockerfile", copy it to the
+    // location openshell expects (buildCtx/Dockerfile).
+    if (path.basename(fromResolved) !== "Dockerfile") {
+      fs.copyFileSync(fromResolved, stagedDockerfile);
+    }
+    console.log(`  Using custom Dockerfile: ${fromResolved}`);
+  } else {
+    fs.copyFileSync(path.join(ROOT, "Dockerfile"), stagedDockerfile);
+    copyBuildContextDir(path.join(ROOT, "nemoclaw"), path.join(buildCtx, "nemoclaw"));
+    copyBuildContextDir(path.join(ROOT, "nemoclaw-blueprint"), path.join(buildCtx, "nemoclaw-blueprint"));
+    copyBuildContextDir(path.join(ROOT, "scripts"), path.join(buildCtx, "scripts"));
+  }
 
   // Create sandbox (use -- echo to avoid dropping into interactive shell)
   // Pass the base policy so sandbox starts in proxy mode (required for policy updates later)
@@ -2777,8 +2804,11 @@ async function onboard(opts = {}) {
   NON_INTERACTIVE = opts.nonInteractive || process.env.NEMOCLAW_NON_INTERACTIVE === "1";
   delete process.env.OPENSHELL_GATEWAY;
   const resume = opts.resume === true;
+  // In non-interactive mode also accept the env var so CI pipelines can set it.
+  const fromDockerfile =
+    opts.fromDockerfile || (isNonInteractive() ? (process.env.NEMOCLAW_FROM_DOCKERFILE || null) : null);
   const lockResult = onboardSession.acquireOnboardLock(
-    `nemoclaw onboard${resume ? " --resume" : ""}${isNonInteractive() ? " --non-interactive" : ""}`
+    `nemoclaw onboard${resume ? " --resume" : ""}${isNonInteractive() ? " --non-interactive" : ""}${fromDockerfile ? ` --from ${fromDockerfile}` : ""}`
   );
   if (!lockResult.acquired) {
     console.error("  Another NemoClaw onboarding run is already in progress.");
@@ -2810,7 +2840,7 @@ async function onboard(opts = {}) {
         console.error("  Run: nemoclaw onboard");
         process.exit(1);
       }
-      const resumeConflicts = getResumeConfigConflicts(session, { nonInteractive: isNonInteractive() });
+      const resumeConflicts = getResumeConfigConflicts(session, { nonInteractive: isNonInteractive(), fromDockerfile });
       if (resumeConflicts.length > 0) {
         for (const conflict of resumeConflicts) {
           if (conflict.field === "sandbox") {
@@ -2838,7 +2868,7 @@ async function onboard(opts = {}) {
       session = onboardSession.saveSession(
         onboardSession.createSession({
           mode: isNonInteractive() ? "non-interactive" : "interactive",
-          metadata: { gatewayName: "nemoclaw" },
+          metadata: { gatewayName: "nemoclaw", fromDockerfile: fromDockerfile || null },
         })
       );
     }
@@ -2973,7 +3003,7 @@ async function onboard(opts = {}) {
       }
       sandboxName = sandboxName || (await promptValidatedSandboxName());
       startRecordedStep("sandbox", { sandboxName, provider, model });
-      sandboxName = await createSandbox(gpu, model, provider, preferredInferenceApi, sandboxName);
+      sandboxName = await createSandbox(gpu, model, provider, preferredInferenceApi, sandboxName, fromDockerfile);
       onboardSession.markStepComplete("sandbox", { sandboxName, provider, model, nimContainer });
     }
 
