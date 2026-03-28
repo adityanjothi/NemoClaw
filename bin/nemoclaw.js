@@ -334,16 +334,31 @@ function exitWithSpawnResult(result) {
 
 async function onboard(args) {
   const { onboard: runOnboard } = require("./lib/onboard");
+
+  // Extract --from <path> before the unknown-arg validator: it takes a value
+  // so the set-based check would reject the value token as an unknown flag.
+  let fromDockerfile = null;
+  const fromIdx = args.indexOf("--from");
+  if (fromIdx !== -1) {
+    fromDockerfile = args[fromIdx + 1];
+    if (!fromDockerfile || fromDockerfile.startsWith("--")) {
+      console.error("  --from requires a path to a Dockerfile");
+      console.error("  Usage: nemoclaw onboard [--non-interactive] [--resume] [--from <Dockerfile>]");
+      process.exit(1);
+    }
+    args = [...args.slice(0, fromIdx), ...args.slice(fromIdx + 2)];
+  }
+
   const allowedArgs = new Set(["--non-interactive", "--resume"]);
   const unknownArgs = args.filter((arg) => !allowedArgs.has(arg));
   if (unknownArgs.length > 0) {
     console.error(`  Unknown onboard option(s): ${unknownArgs.join(", ")}`);
-    console.error("  Usage: nemoclaw onboard [--non-interactive] [--resume]");
+    console.error("  Usage: nemoclaw onboard [--non-interactive] [--resume] [--from <Dockerfile>]");
     process.exit(1);
   }
   const nonInteractive = args.includes("--non-interactive");
   const resume = args.includes("--resume");
-  await runOnboard({ nonInteractive, resume });
+  await runOnboard({ nonInteractive, resume, fromDockerfile });
 }
 
 async function setup() {
@@ -716,6 +731,7 @@ function help() {
 
   ${G}Getting Started:${R}
     ${B}nemoclaw onboard${R}                 Configure inference endpoint and credentials
+    nemoclaw onboard ${D}--from <Dockerfile>${R}  Use a custom Dockerfile for the sandbox image
     nemoclaw setup-spark             Set up on DGX Spark ${D}(fixes cgroup v2 + Docker)${R}
 
   ${G}Sandbox Management:${R}
