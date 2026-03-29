@@ -34,6 +34,13 @@ function defaultSteps() {
   };
 }
 
+function buildSessionMetadata(meta = {}) {
+  return {
+    gatewayName: meta.gatewayName || "nemoclaw",
+    fromDockerfile: meta.fromDockerfile || null,
+  };
+}
+
 function createSession(overrides = {}) {
   const now = new Date().toISOString();
   return {
@@ -55,9 +62,7 @@ function createSession(overrides = {}) {
     preferredInferenceApi: overrides.preferredInferenceApi || null,
     nimContainer: overrides.nimContainer || null,
     policyPresets: Array.isArray(overrides.policyPresets) ? overrides.policyPresets.filter((value) => typeof value === "string") : null,
-    metadata: {
-      gatewayName: overrides.metadata?.gatewayName || "nemoclaw",
-    },
+    metadata: buildSessionMetadata(overrides.metadata),
     steps: {
       ...defaultSteps(),
       ...(overrides.steps || {}),
@@ -368,6 +373,7 @@ function filterSafeUpdates(updates) {
   if (isObject(updates.metadata) && typeof updates.metadata.gatewayName === "string") {
     safe.metadata = {
       gatewayName: updates.metadata.gatewayName,
+      fromDockerfile: updates.metadata.fromDockerfile || null,
     };
   }
   return safe;
