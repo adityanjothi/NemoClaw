@@ -347,6 +347,8 @@ describe("onboard helpers", () => {
 
   it("detects resume conflicts when a different --from Dockerfile is requested", () => {
     const session = { metadata: { fromDockerfile: "/project/Dockerfile" } };
+
+    // Different paths → conflict
     const conflicts = getResumeConfigConflicts(session, {
       nonInteractive: false,
       fromDockerfile: "/other/Dockerfile",
@@ -361,9 +363,20 @@ describe("onboard helpers", () => {
     });
     expect(same.filter((c) => c.field === "fromDockerfile")).toHaveLength(0);
 
-    // --from not specified on resume → no conflict
-    const absent = getResumeConfigConflicts(session, { nonInteractive: false });
-    expect(absent.filter((c) => c.field === "fromDockerfile")).toHaveLength(0);
+    // Session recorded a custom Dockerfile but resume omits --from → conflict (would switch to stock image)
+    const switchToStock = getResumeConfigConflicts(session, { nonInteractive: false });
+    expect(switchToStock.filter((c) => c.field === "fromDockerfile")).toHaveLength(1);
+
+    // Neither session nor resume specifies --from → no conflict (both stock)
+    const bothStock = getResumeConfigConflicts({ metadata: {} }, { nonInteractive: false });
+    expect(bothStock.filter((c) => c.field === "fromDockerfile")).toHaveLength(0);
+
+    // Session used stock image but resume specifies --from → conflict
+    const switchToCustom = getResumeConfigConflicts(
+      { metadata: {} },
+      { nonInteractive: false, fromDockerfile: "/project/Dockerfile" }
+    );
+    expect(switchToCustom.filter((c) => c.field === "fromDockerfile")).toHaveLength(1);
   });
 
   it("returns provider and model hints only for non-interactive runs", () => {

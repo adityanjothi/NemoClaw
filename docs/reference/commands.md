@@ -64,7 +64,7 @@ The entire parent directory of the specified file is used as the Docker build co
 $ nemoclaw onboard --from path/to/Dockerfile
 ```
 
-The Dockerfile must be named `Dockerfile`.
+The file can have any name; if it is not already named `Dockerfile`, onboard copies it to `Dockerfile` inside the staged build context automatically.
 All NemoClaw build arguments (`NEMOCLAW_MODEL`, `NEMOCLAW_PROVIDER_KEY`, `NEMOCLAW_INFERENCE_BASE_URL`, etc.) are injected as `ARG` overrides at build time, so declare them in your Dockerfile if you need to reference them.
 
 In non-interactive mode, the path can also be supplied via the `NEMOCLAW_FROM_DOCKERFILE` environment variable:
